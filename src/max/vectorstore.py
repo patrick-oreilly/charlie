@@ -8,7 +8,18 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from .utils import should_index, file_hash
 
 def build_or_load_vectorstore(project_path: str):
-    persist_dir = os.path.join(project_path, ".codeflow_index")
+    # Define new directory name
+    CHARLIE_INDEX_DIR = ".charlie_index"
+    old_dir = os.path.join(project_path, ".codeflow_index")
+    new_dir = os.path.join(project_path, CHARLIE_INDEX_DIR)
+
+    # Migration: Move old directory if it exists
+    if os.path.exists(old_dir) and not os.path.exists(new_dir):
+        import shutil
+        print("Migrating index from .codeflow_index to .charlie_index...")
+        shutil.move(old_dir, new_dir)
+
+    persist_dir = new_dir
     meta_path = os.path.join(persist_dir, "index_meta.json")
     os.makedirs(persist_dir, exist_ok=True)
 
@@ -44,8 +55,17 @@ def build_or_load_vectorstore(project_path: str):
                 doc.metadata["source"] = file_key
             new_docs.extend(docs)
             new_meta[file_key] = current_hash
+        except (FileNotFoundError, PermissionError) as e:
+            # Silently skip files that don't exist or we can't read
+            pass
+        except UnicodeDecodeError as e:
+            # Skip binary files
+            pass
+        except OSError as e:
+            print(f"Warning: Could not read {file_path}: {e}")
         except Exception as e:
-            print(f"Skipped {file_path}: {e}")
+            # Log unexpected errors for debugging
+            print(f"Error loading {file_path}: {e}")
 
     # Build or update
     if new_docs:
@@ -56,8 +76,21 @@ def build_or_load_vectorstore(project_path: str):
         )
         print(f"Indexed {len(chunks)} chunks.")
     else:
-        print("No changes. Loading existing index.")
-        vectorstore = Chroma(persist_directory=persist_dir, embedding_function=embeddings)
+        # Check if this is first run (no existing index database)
+        index_db_file = Path(persist_dir) / "chroma.sqlite3"
+        if not index_db_file.exists():
+            print("No files to index. Creating empty vectorstore.")
+            # Create empty vectorstore for first run
+            vectorstore = Chroma(
+                persist_directory=persist_dir,
+                embedding_function=embeddings
+            )
+        else:
+            print("No changes detected. Loading existing index.")
+            vectorstore = Chroma(
+                persist_directory=persist_dir,
+                embedding_function=embeddings
+            )
 
     # Save meta - merge old and new metadata
     old_meta.update(new_meta)

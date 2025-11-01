@@ -1,5 +1,5 @@
 [project]
-name = "charlie"
+name = "max"
 version = "0.1.0"
 description = "."
 authors = [{ name = "Patrick O'Reilly", email = "" }]
@@ -33,7 +33,7 @@ dev = [
 ]
 
 [project.scripts]
-charlie = "charlie.cli:app"
+charlie = "max.cli:app"
 
 [build-system]
 requires = ["hatchling"]

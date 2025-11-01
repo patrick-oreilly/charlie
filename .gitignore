@@ -1,7 +1,28 @@
+# Index directories
+.charlie_index/
 .codeflow_index/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment
 .env
+
+# Build
 dist/
 build/
 *.egg-info
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

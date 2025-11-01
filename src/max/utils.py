@@ -1,8 +1,7 @@
 import hashlib
-from pathlib import Path    
-from typing import Set
+from pathlib import Path
 
-def should_index(path: Path, supported_exts: Set[str] = None) -> bool:
+def should_index(path: Path, supported_exts: set[str] | None = None) -> bool:
     if supported_exts is None:
         supported_exts = {'.txt', '.md', '.py', '.json', '.csv', '.yaml',
                           '.yml', '.html', '.xml', '.js', '.css', '.java',

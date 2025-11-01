@@ -1,11 +1,13 @@
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, RichLog
-from rich.syntax import Syntax
+from rich.markdown import Markdown
+
 from .vectorstore import build_or_load_vectorstore
 from .chain import make_code_chain
 
+
 class CharlieApp(App):
-    TITLE = "Charlie - Local assistant for Your Codebase"
+    TITLE = "Charlie – Local assistant for Your Codebase"
     BINDINGS = [
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+q", "quit", "Quit"),
@@ -13,125 +15,110 @@ class CharlieApp(App):
         ("escape", "focus_input", "Focus Input"),
     ]
     CSS = """
-    Screen {
-        background: transparent;
-    }
-    #main-container {
-        padding: 1 4;
-        align: center middle;
-        background: transparent;
-    }
-    #agent-output {
-        height: 100%;
-        width: 100%;
-        padding:1;
-        border: solid #666;
-        }
-    RichLog {
-        height: 1fr;
-        background: transparent;
-        border: none;
-        overflow-y: auto;
-        scrollbar-gutter: stable;
-    }
-
-    Input {
-        dock: bottom;
-        border: tall $primary;
-    }
+    Screen { background: transparent; }
+    RichLog { height: 1fr; background: transparent; border: none; overflow-y: auto; scrollbar-gutter: stable; }
+    Input { dock: bottom; border: tall $primary; }
     """
 
+    # ------------------------------------------------------------------ #
+    #  INITIALISATION
+    # ------------------------------------------------------------------ #
     def __init__(self, project_path: str):
         super().__init__()
         self.project_path = project_path
-        self.chat_history = []  # Store chat messages for redrawing
+        self.chat_history: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         self.chat_log = RichLog(highlight=True, markup=True, wrap=True)
         yield self.chat_log
-        self.input = Input(placeholder="Ask about your code...")
+        self.input = Input(placeholder="Ask about your code…")
         yield self.input
         yield Footer()
 
-    async def on_mount(self):
-        self.chat_log.write("[bold magenta]Initializing Charlie...[/bold magenta]\n")
+    async def on_mount(self) -> None:
+        self.chat_log.write("[bold magenta]Initializing Charlie…[/bold magenta]\n")
         self.vectorstore = build_or_load_vectorstore(self.project_path)
         self.chain, self.memory = make_code_chain(self.vectorstore)
         self.chat_log.write("[bold green]Ready! Ask about your codebase.[/bold green]\n")
 
-    def action_clear_log(self):
-        """Clear the chat log."""
+    # ------------------------------------------------------------------ #
+    #  ACTIONS
+    # ------------------------------------------------------------------ #
+    def action_clear_log(self) -> None:
         self.chat_history = []
         self.chat_log.clear()
-        self.chat_log.write("[bold green]Chat cleared. Ready for new questions.[/bold green]")
+        self.chat_log.write("[bold green]Chat cleared.[/bold green]\n")
 
-    def action_focus_input(self):
-        """Focus the input field."""
+    def action_focus_input(self) -> None:
         self.input.focus()
 
-    async def on_input_submitted(self, event: Input.Submitted):
+    # ------------------------------------------------------------------ #
+    #  INPUT → STREAMING → MARKDOWN + BLINKING CURSOR
+    # ------------------------------------------------------------------ #
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle the user pressing <Enter> in the Input widget."""
         query = event.value.strip()
         if not query:
             return
 
+        # 1. Show user line immediately
         self.input.value = ""
-
-        # Add user message to history
         self.chat_history.append(("user", query))
-
-        # Stream the response token by token
-        response = ""
-        async for chunk in self.chain.astream(query):
-            response += chunk
-            # Redraw the entire chat with the streaming response
-            self._redraw_chat(streaming_response=response)
-
-        # Finalize the response in history
-        self.chat_history.append(("ai", response))
         self._redraw_chat()
 
-        self.memory.save_context({"input": query}, {"output": response})
+        # 2. Placeholder + start blinking
+        self.chat_history.append(("ai", "_Thinking…_"))
+        self._redraw_chat()
+        self._cursor_visible = True
+        self._start_cursor_blink()
 
-        # Syntax highlight code blocks
-        if "```" in response:
-            self.highlight_code_in_log()
+        # 3. Stream the LLM
+        response = ""
+        try:
+            async for chunk in self.chain.astream(query):
+                response += chunk
+                self.chat_history[-1] = ("ai", response)
+                self._redraw_chat()
+        finally:
+            # 4. Stop blinking & final render
+            self._stop_cursor_blink()
+            if not response.strip():
+                response = "_No response received._"
+            self.chat_history[-1] = ("ai", response)
+            self._redraw_chat()
 
-    def _redraw_chat(self, streaming_response=None):
-        """Redraw the entire chat log with optional streaming response."""
+            # 5. Save conversation
+            self.memory.save_context({"input": query}, {"output": response})
+
+    # ------------------------------------------------------------------ #
+    #  CURSOR BLINK HELPERS
+    # ------------------------------------------------------------------ #
+    def _start_cursor_blink(self) -> None:
+        self._cursor_timer = self.set_interval(0.5, self._toggle_cursor)
+
+    def _stop_cursor_blink(self) -> None:
+        if hasattr(self, "_cursor_timer"):
+            self._cursor_timer.stop()
+            self._cursor_visible = False
+
+    def _toggle_cursor(self) -> None:
+        self._cursor_visible = not self._cursor_visible
+        self._redraw_chat()
+
+    # ------------------------------------------------------------------ #
+    #  REDRAW (Markdown + optional cursor)
+    # ------------------------------------------------------------------ #
+    def _redraw_chat(self) -> None:
         self.chat_log.clear()
-
-        # Write all historical messages
         for role, message in self.chat_history:
             if role == "user":
-                self.chat_log.write(f"[bold cyan]You:[/bold cyan] {message}")
+                self.chat_log.write(f"[bold cyan]You:[/bold cyan] {message}\n")
             else:
-                self.chat_log.write(f"[bold green]AI:[/bold green] {message}")
+                md = Markdown(message, inline_code_theme="monokai")
+                self.chat_log.write(md)
 
-        # If streaming, show the current partial response
-        if streaming_response:
-            self.chat_log.write(f"[bold green]AI:[/bold green] {streaming_response}")
-
-    def highlight_code_in_log(self):
-        lines = self.chat_log.text.splitlines()
-        in_code = False
-        lang = "text"
-        code_lines = []
-
-        for line in lines:
-            if line.strip().startswith("```"):
-                if in_code:
-                    # End code block
-                    code = "\n".join(code_lines)
-                    syntax = Syntax(code, lang, theme="monokai", line_numbers=False)
-                    self.chat_log.clear()
-                    self.chat_log.write(syntax)
-                    in_code = False
-                else:
-                    lang = line.strip("`").strip() or "text"
-                    code_lines = []
-                    in_code = True
-            elif in_code:
-                code_lines.append(line)
-            else:
-                self.chat_log.write(line + "\n")
+                # show blinking cursor **only** on the very last AI entry
+                if (role, message) == self.chat_history[-1]:
+                    cursor = " █" if getattr(self, "_cursor_visible", False) else "  "
+                    self.chat_log.write(cursor)

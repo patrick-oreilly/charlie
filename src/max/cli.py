@@ -1,11 +1,11 @@
 import typer
-from .app import CharlieApp
+from ..tui.app import MaxApp
 
 app = typer.Typer(help="Local AI for your codebase. Run in any project folder.")
 
 @app.command()
 def main(path: str = "."):
-    """Launch Charlie in the given project directory."""
+    """Launch Max in the given project directory."""
     import os
     project_path = os.path.abspath(path)
 
@@ -13,9 +13,9 @@ def main(path: str = "."):
         typer.echo(f"Error: {project_path} is not a valid directory.")
         raise typer.Exit(1)
 
-    typer.echo(f"Launching Charlie in: {project_path}")
-    charlie_app = CharlieApp(project_path)
-    charlie_app.run()
+    typer.echo(f"Launching Max in: {project_path}")
+    max_app = MaxApp(project_path)
+    max_app.run()
 
 if __name__ == "__main__":
     app()

@@ -6,12 +6,11 @@ from vertexai.preview import rag
 
 from . import prompt
 
-model = LiteLlm(model_name='ollama_chat/gpt-oss:20b')
+model = LiteLlm(model='ollama_chat/gpt-oss:20b')
 
 root_agent = Agent(
     model=model,
     name='root_agent',
     description='A helpful assistant for user questions.',
     instruction=prompt.MAX_AGENT_PROMPT,
-    tools=[google_search],
-    ),
+)

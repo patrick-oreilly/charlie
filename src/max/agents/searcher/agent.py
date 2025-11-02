@@ -1,8 +1,13 @@
 from google.adk.agents.llm_agent import Agent
+from google.adk.models.lite_llm import LiteLlm
+from .tools import web_search_tool
+
+model = LiteLlm(model='ollama_chat/gpt-oss:20b')
 
 root_agent = Agent(
-    model='<FILL_IN_MODEL>',
+    model=model,
     name='root_agent',
-    description='A helpful assistant for user questions.',
-    instruction='Answer user questions to the best of your knowledge',
+    description='Information retrieval specialist.',
+    instruction='Search for and retrieve relevant information from the web.',
+    tools=[web_search_tool],  
 )

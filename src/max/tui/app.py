@@ -1,9 +1,16 @@
+import asyncio
 import time
 from textual.app import App, ComposeResult
 from textual.timer import Timer
 from textual.widgets import Input, RichLog
 from rich.markdown import Markdown
-from ..agents.meta import create_meta_agent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+
+from google.genai.types import Content, Part
+from google.genai import types
+
+from ..agents.meta.agent import root_agent
 
 
 class MaxApp(App):
@@ -16,14 +23,14 @@ class MaxApp(App):
     ]
     CSS = """
     Screen {
-        background: #0a0a0a;
+        background: transparent;
         padding: 0;
         align: center middle;
     }
 
     RichLog {
         height: 1fr;
-        background: #0a0a0a;
+        background: transparent;
         color: #E5E1DA;
         border: none;
         overflow-x: hidden;
@@ -37,10 +44,10 @@ class MaxApp(App):
         dock: bottom;
         width: 100%;
         height: 3;
-        margin: 0;
+        margin: 0 2;
         padding: 0 3;
-        background: #1a1a1a;
-        color: #E5E1DA;
+        background: rgba(26, 26, 26, 0.8);  
+        color: #0a0a0a;
         border: round #B3C8CF;
     }
 
@@ -69,6 +76,8 @@ class MaxApp(App):
         # Track if we're currently streaming to avoid flickering
         self._is_streaming: bool = False
 
+        self.user_id = "admin"
+
     def compose(self) -> ComposeResult:
         self.chat_log = RichLog(
             highlight=True,
@@ -82,10 +91,24 @@ class MaxApp(App):
 
     async def on_mount(self) -> None:
         self.chat_log.write("[#89A8B2]⚡ Waking up Max[/#89A8B2]\n")
-        # NOTE: Using placeholder values for vectorstore and chain
-        # as the actual implementations are external to this file.
-        self.vectorstore = build_or_load_vectorstore(self.project_path)
-        self.chain, self.memory = make_code_chain_with_tools(self.vectorstore)
+
+        self.session_service = InMemorySessionService()
+
+        self.runner = Runner(
+            agent=root_agent,
+            app_name="Max",
+            session_service=self.session_service
+        )
+
+        self.session = await self.runner.session_service.create_session(
+            app_name="Max",
+            user_id=self.user_id,
+            state={"project_path": self.project_path},
+        )
+
+        self.session_id = self.session.id
+
+
         self.chat_log.write("[bold #89A8B2]✓[/bold #89A8B2] [#4a6168]Ready[/#4a6168]\n")
 
  
@@ -102,34 +125,62 @@ class MaxApp(App):
         if not query:
             return
 
-        # 1. Show user line immediately
         self.input.value = ""
         self.chat_history.append(("user", query))
         self._redraw_chat()
 
-        # 2. Placeholder + start animated dots
         self.chat_history.append(("ai", "Thinking."))
         self._redraw_chat()
         self._start_dots_animation()
 
-        # 3. Stream the LLM
         response = ""
+        tool_calls = []
+        current_agent: str | None = None
         self._is_streaming = True
         try:
-            # The async for loop is where the main thread is blocked waiting for the stream,
-            # but the timer for the cursor blink continues in the background.
-            async for chunk in self.chain.astream(query):
-                # Stop dots animation on first chunk to prevent race condition
+            content = types.Content(
+                role="user",
+                parts=[types.Part(text=query)]
+            )
+
+            events = self.runner.run_async(
+                user_id=self.user_id,
+                session_id=self.session_id,
+                new_message=content,
+            )
+            async for event in events:
+                if event.author and event.author != current_agent:
+                    current_agent = event.author
+                    # Show agent transition (briefly)
+                    if current_agent != "meta":
+                        self._stop_dots_animation()
+                        agent_name = current_agent.title()
+                        self.chat_history[-1] = ("ai", f"[dim]→ {agent_name}[/dim]")
+                        self._redraw_chat()
+                        await asyncio.sleep(0.3)  # Brief pause
+                        self.chat_history[-1] = ("ai", "")
+                        self._start_dots_animation()
+
                 if not response:
                     self._stop_dots_animation()
 
-                # Assuming 'chunk' is the string content
-                response += chunk
-                self.chat_history[-1] = ("ai", response)
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if hasattr(part, "tool_call") and part.tool_call:
+                            tool_name = part.tool_call.name
+                            tool_calls.append(tool_name)
+                            tool_display = f"[dim italic]🔧 Using {tool_name}...[/dim italic]"
+                            self.chat_history[-1] = ("ai", tool_display)
+                            self._redraw_chat()
+                            await asyncio.sleep(0.5)
+                            
+                        elif hasattr(part, "text") and part.text:
+                            response += part.text
+                            self.chat_history[-1] = ("ai", response)
+                            self._redraw_chat()
 
-                # Update on every token for smooth streaming
-                self._redraw_chat()
-
+                
+    
         except ConnectionError as e:
             response = "❌ **Connection Error**\n\nCould not reach Ollama. Is it running?\n\n```\nollama serve\n```"
             self.chat_history[-1] = ("ai", response)
@@ -150,10 +201,6 @@ class MaxApp(App):
                 response = "_No response received._"
             self.chat_history[-1] = ("ai", response)
             self._redraw_chat()
-
-            # 5. Save conversation (only save successful responses)
-            if response and not response.startswith("❌"):
-                self.memory.save_context({"input": query}, {"output": response})
 
 
     # ------------------------------------------------------------------ #
@@ -197,3 +244,4 @@ class MaxApp(App):
                     # Always render markdown, even during streaming
                     md = Markdown(message)
                     self.chat_log.write(md)
+

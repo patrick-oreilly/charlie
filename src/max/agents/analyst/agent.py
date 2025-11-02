@@ -1,8 +1,14 @@
 from google.adk.agents.llm_agent import Agent
+from google.adk.models.lite_llm import LiteLlm
 
+from . import prompt
+from .tools import search_codebase
+
+model = LiteLlm(model='ollama_chat/gpt-oss:20b')
 root_agent = Agent(
-    model='<FILL_IN_MODEL>',
+    model=model,
     name='root_agent',
-    description='A helpful assistant for user questions.',
-    instruction='Answer user questions to the best of your knowledge',
+    description='Code analyst specialist.',
+    instruction=prompt.ANALYST_PROMPT,
+    tools=[search_codebase],
 )

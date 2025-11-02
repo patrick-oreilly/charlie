@@ -1,5 +1,5 @@
 import typer
-from ..tui.app import MaxApp
+from .tui.app import MaxApp
 
 app = typer.Typer(help="Local AI for your codebase. Run in any project folder.")
 

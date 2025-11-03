@@ -7,10 +7,10 @@ from rich.markdown import Markdown
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from google.genai.types import Content, Part
 from google.genai import types
 
 from ..agents.meta.agent import root_agent
+from .style import MAX_STYLE, ACCENT, TEXT, MAX_BANNER
 
 
 class MaxApp(App):
@@ -21,45 +21,7 @@ class MaxApp(App):
         ("ctrl+d", "clear_log", "Clear"),
         ("escape", "focus_input", "Focus Input"),
     ]
-    CSS = """
-    Screen {
-        background: transparent;
-        padding: 0;
-        align: center middle;
-    }
-
-    RichLog {
-        height: 1fr;
-        background: transparent;
-        color: #E5E1DA;
-        border: none;
-        overflow-x: hidden;
-        overflow-y: auto;
-        scrollbar-gutter: stable;
-        padding: 2 3;
-        margin: 2 2 0 2;
-    }
-
-    Input {
-        dock: bottom;
-        width: 100%;
-        height: 3;
-        margin: 0 2;
-        padding: 0 3;
-        background: rgba(26, 26, 26, 0.8);  
-        color: #0a0a0a;
-        border: round #B3C8CF;
-    }
-
-    Input:focus {
-        border: round #89A8B2;
-        background: #1a1a1a;
-    }
-
-    Input > .input--placeholder {
-        color: #89A8B2;
-    }
-    """
+    CSS = MAX_STYLE
 
     # ------------------------------------------------------------------ #
     #  INITIALISATION
@@ -68,17 +30,16 @@ class MaxApp(App):
         super().__init__()
         self.project_path = project_path
         self.chat_history: list[tuple[str, str]] = []
-        # State variables for animated dots
+
         self._dots_count: int = 0
         self._dots_timer: Timer | None = None
-        # Performance: throttle chat redraws to 20 FPS
         self._last_redraw_time: float = 0.0
-        # Track if we're currently streaming to avoid flickering
         self._is_streaming: bool = False
 
         self.user_id = "admin"
 
     def compose(self) -> ComposeResult:
+
         self.chat_log = RichLog(
             highlight=True,
             markup=True,
@@ -90,7 +51,10 @@ class MaxApp(App):
         yield self.input
 
     async def on_mount(self) -> None:
-        self.chat_log.write("[#89A8B2]⚡ Waking up Max[/#89A8B2]\n")
+        # ASCII art banner
+        banner = MAX_BANNER
+        self.chat_log.write(banner)
+        self.chat_log.write(f"\n[{ACCENT}]⚡ Initializing...[/{ACCENT}]\n")
 
         self.session_service = InMemorySessionService()
 
@@ -109,13 +73,13 @@ class MaxApp(App):
         self.session_id = self.session.id
 
 
-        self.chat_log.write("[bold #89A8B2]✓[/bold #89A8B2] [#4a6168]Ready[/#4a6168]\n")
+        self.chat_log.write(f"[bold {ACCENT}]✓[/bold {ACCENT}] [dim]Ready[/dim]\n")
 
  
     def action_clear_log(self) -> None:
         self.chat_history = []
         self.chat_log.clear()
-        self.chat_log.write("[#89A8B2]Chat cleared[/#89A8B2]\n")
+        self.chat_log.write(f"[{ACCENT}]Chat cleared[/{ACCENT}]\n")
 
     def action_focus_input(self) -> None:
         self.input.focus()
@@ -218,7 +182,7 @@ class MaxApp(App):
 
         self._dots_count = (self._dots_count % 3) + 1
         dots = "." * self._dots_count
-        self.chat_history[-1] = ("ai", f"[#89A8B2]Thinking{dots}[/#89A8B2]")
+        self.chat_history[-1] = ("ai", f"[{ACCENT}]Thinking{dots}[/{ACCENT}]")
         self._redraw_chat()
 
     def _stop_dots_animation(self) -> None:
@@ -235,13 +199,16 @@ class MaxApp(App):
         self.chat_log.clear()
         for role, message in self.chat_history:
             if role == "user":
-                self.chat_log.write(f"\n[bold #89A8B2]›[/bold #89A8B2] [#E5E1DA]{message}[/#E5E1DA]\n")
+                self.chat_log.write(f"\n[bold {ACCENT}]›[/bold {ACCENT}] [{TEXT}]{message}[/{TEXT}]\n")
             else:
                 # If it's a "Thinking" message, use Rich markup, otherwise use Markdown
-                if message.startswith("[#89A8B2]Thinking"):
+                if message.startswith(f"[{ACCENT}]Thinking"):
                     self.chat_log.write(message)
                 else:
                     # Always render markdown, even during streaming
                     md = Markdown(message)
                     self.chat_log.write(md)
+
+
+
 

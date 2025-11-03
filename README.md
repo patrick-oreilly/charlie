@@ -1,7 +1,9 @@
 # Max
 
-Max is a friendly terminal assistant built with Google ADK.  - Local, fast and private.
+Max is a friendly terminal assistant built with Google ADK.
+Local, fast and private.
 
+<img width="783" height="580" alt="Screenshot 2025-11-03 at 19 02 48" src="https://github.com/user-attachments/assets/dcd4f300-61ab-44e8-b8d9-2993be7d12de" />
 
 ## Architecture
 - Max (Orchestrator agent)
